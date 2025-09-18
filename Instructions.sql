@@ -1,0 +1,155 @@
+-- step :1 use an admin role
+USE ROLE ACCOUNTADMIN;
+
+-- STEP2: create the transform role and asssign it to account admin
+
+CREATE ROLE IF NOT EXISTS TRANSFORM;
+GRANT ROLE TRANSFORM TO ROLE ACCOUNTADMIN;
+
+
+--  STEP:3 create a defualt warehouse 
+
+CREATE WAREHOUSE IF NOT EXISTS COMPUTE_WH;
+GRANT OPERATE ON WAREHOUSE COMPUTE_WH TO ROLE TRANSFORM;
+
+--  STEP 4 : Create the dbt user and assigne to the transform role
+
+CREATE USER IF NOT EXISTS dbt
+    PASSWORD='dbtPassword123'
+    LOGIN_NAME='dbt'
+    MUST_CHANGE_PASSWORD=FALSE
+    DEFAULT_WAREHOUSE='COMPUTE_WH'
+    DEFAULT_ROLE = TRANSFORM
+    DEFAULT_NAMESPACE='MOVIELENS.RAW'
+    COMMENT='DBT users used for data transformtion';
+ALTER USER dbt SET TYPE =LEGACY_SERVICE;
+GRANT ROLE TRANSFORM TO USER dbt;
+
+-- step 5 create  a database and schema
+
+CREATE DATABASE IF NOT EXISTS MOVIELENS;
+CREATE SCHEMA IF NOT EXISTS MOVIELENS.RAW;
+
+-- STEP 6 Grant access to the transform role
+
+GRANT ALL ON WAREHOUSE COMPUTE_WH TO ROLE TRANSFORM;
+GRANT ALL ON DATABASE MOVIELENS TO ROLE TRANSFORM;
+GRANT ALL ON ALL SCHEMAS IN DATABASE MOVIELENS TO ROLE TRANSFORM;
+GRANT ALL ON FUTURE SCHEMAS IN DATABASE MOVIELENS TO ROLE TRANSFORM;
+GRANT ALL ON ALL TABLES IN SCHEMA MOVIELENS.RAW TO ROLE TRANSFORM;
+GRANT ALL ON FUTURE TABLES IN SCHEMA MOVIELENS.RAW TO ROLE TRANSFORM;
+
+
+
+USE WAREHOUSE COMPUTE_WH;
+USE DATABASE MOVIELENS;
+USE SCHEMA MOVIELENS.RAW;
+
+-- Step1 : storage integration
+
+CREATE STAGE netflix_data_stage
+URL= 's3://netflix-dataset-sangu'
+CREDENTIALS=(AWS_KEY_ID='',AWS_SECRET_KEY='')
+
+--  CREATE MOVIES TABLE AND LOAD THE DATA
+CREATE OR REPLACE TABLE raw_movies(
+movieId INT,
+title STRING,
+genres STRING
+);
+
+COPY INTO raw_movies
+FROM '@netflix_data_stage/movies.csv'
+FILE_FORMAT=(TYPE='CSV' SKIP_HEADER=1 FIELD_OPTIONALLY_ENCLOSED_BY='"');
+
+--  RETRIVE THE DATA MOVIES
+
+SELECT * 
+FROM raw_movies;
+
+-- CREATE TABLE FOR RATINGS
+
+CREATE OR REPLACE TABLE raw_ratings(
+userID INTEGER,
+movieId INTEGER,
+ratings FLOAT,
+timestampe BIGINT
+);
+
+COPY INTO raw_ratings
+FROM '@netflix_data_stage/ratings.csv'
+FILE_FORMAT=(TYPE='CSV' SKIP_HEADER=1 FIELD_OPTIONALLY_ENCLOSED_BY='"');
+
+
+ALTER TABLE raw_ratings 
+RENAME COLUMN timestampe TO timestamp;
+
+SELECT *
+FROM raw_ratings
+LIMIT 100;
+
+-- CREATE TABLE FOR tags
+
+
+CREATE OR REPLACE TABLE raw_tags(
+userID INTEGER,
+movieId INTEGER,
+tag STRING,
+timestamp BIGINT
+);
+
+COPY INTO raw_tags
+FROM '@netflix_data_stage/tags.csv'
+FILE_FORMAT=(TYPE='CSV' SKIP_HEADER=1 FIELD_OPTIONALLY_ENCLOSED_BY='"')
+ON_ERROR = CONTINUE;
+
+SELECT *
+FROM raw_tags;
+
+--  create table for genome scores
+
+CREATE OR REPLACE TABLE raw_genome_scores(
+movieId INTEGER,
+tagId INTEGER,
+relevance FLOAT
+);
+
+COPY INTO raw_genome_scores
+FROM '@netflix_data_stage/genome-scores.csv'
+FILE_FORMAT=(TYPE='CSV' SKIP_HEADER=1 FIELD_OPTIONALLY_ENCLOSED_BY='"')
+
+SELECT *
+FROM raw_genome_scores
+LIMIT 100;
+
+-- create table raw genome tags and load the data
+
+
+CREATE OR REPLACE TABLE raw_genome_tags(
+tagId INTEGER,
+tag STRING
+);
+
+COPY INTO raw_genome_tags
+FROM '@netflix_data_stage/genome-tags.csv'
+FILE_FORMAT=(TYPE='CSV' SKIP_HEADER=1 FIELD_OPTIONALLY_ENCLOSED_BY='"')
+
+SELECT *
+FROM raw_genome_tags
+LIMIT 100;
+
+--  create table links and load the data
+
+CREATE OR REPLACE TABLE raw_links(
+movieId INTEGER,
+imdbId INTEGER,
+tmdbId STRING
+);
+
+COPY INTO raw_links
+FROM '@netflix_data_stage/links.csv'
+FILE_FORMAT=(TYPE='CSV' SKIP_HEADER=1 FIELD_OPTIONALLY_ENCLOSED_BY='"')
+
+SELECT *
+FROM raw_links
+LIMIT 100;
